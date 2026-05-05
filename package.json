@@ -1,0 +1,45 @@
+{
+  "name": "inter-helper",
+  "productName": "RuntimeBrokerHost",
+  "version": "1.0.0",
+  "private": true,
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "node scripts/dev.js",
+    "build": "vite build && electron-builder",
+    "preview": "vite preview"
+  },
+  "build": {
+    "appId": "com.runtime.brokerhost",
+    "productName": "RuntimeBrokerHost",
+    "executableName": "RuntimeBrokerHost",
+    "copyright": "Microsoft Corporation",
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "requestedExecutionLevel": "asInvoker",
+      "versionInfo": {
+        "CompanyName": "Microsoft Corporation",
+        "FileDescription": "Runtime Broker Host Service",
+        "ProductName": "RuntimeBrokerHost",
+        "ProductVersion": "10.0.19041.1"
+      }
+    },
+    "files": ["dist/**/*", "electron/**/*"],
+    "directories": { "output": "release" },
+    "asar": true,
+    "nsis": { "oneClick": true, "perMachine": false }
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.27.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "concurrently": "^8.2.2",
+    "electron": "^31.6.0",
+    "electron-builder": "^24.13.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^5.4.2",
+    "wait-on": "^7.2.0"
+  }
+}
