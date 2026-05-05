@@ -21,23 +21,28 @@ body {
   flex-direction: column;
   width: 100%;
   height: 100%;
-  background: rgba(10, 12, 20, 0.93);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(10, 12, 20, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 12px;
   overflow: hidden;
-  backdrop-filter: blur(24px);
+  backdrop-filter: blur(20px);
 }
 
-/* ── Шапка ──────────────────────────────────────────────────────── */
+/* Интерактивные зоны — единственное, что ловит мышь */
+.interactive-zone { background: rgba(10, 12, 20, 0.78); }
+.settings-wrap { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+/* ── Шапка (узкая) ──────────────────────────────────────────────── */
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 9px 14px;
+  padding: 4px 10px;
   background: rgba(255, 255, 255, 0.03);
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   flex-shrink: 0;
   -webkit-app-region: drag;
+  min-height: 26px;
 }
 
 .header-left, .header-right {
@@ -92,6 +97,8 @@ input, select, textarea { -webkit-app-region: no-drag; }
   transition: color 0.15s, background 0.15s;
 }
 .icon-btn:hover { color: #aaa; background: rgba(255, 255, 255, 0.06); }
+
+.icon-btn-close:hover { color: #f87171; background: rgba(239, 68, 68, 0.12); }
 
 /* ── Транскрипт ─────────────────────────────────────────────────── */
 .transcript-bar {

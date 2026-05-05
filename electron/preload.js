@@ -5,6 +5,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveSettings: (s) => ipcRenderer.invoke('save-settings', s),
 
   getAnswer: (question) => ipcRenderer.send('get-answer', { question }),
+  recognizeAudio: (arrayBuffer) => ipcRenderer.invoke('recognize-audio', arrayBuffer),
+
+  setIgnoreMouse: (ignore) => ipcRenderer.send('set-ignore-mouse', ignore),
+  toggleHotkeysWindow: () => ipcRenderer.send('toggle-hotkeys-window'),
+  quitApp: () => ipcRenderer.send('quit-app'),
 
   onAnswerChunk: (cb) => {
     const h = (_, v) => cb(v);

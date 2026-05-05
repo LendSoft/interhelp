@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import AnswerPanel from './components/AnswerPanel';
 import Settings from './components/Settings';
 
-// phases: idle | recording | thinking | answering | done | error
+// phases: idle | recording | transcribing | thinking | answering | done | error
 export default function App() {
   const [phase, setPhase] = useState('idle');
   const [transcript, setTranscript] = useState('');
@@ -12,36 +12,53 @@ export default function App() {
   const [settings, setSettings] = useState({});
   const [manualInput, setManualInput] = useState('');
 
-  const recognitionRef = useRef(null);
+  const recorderRef = useRef(null);
   const phaseRef = useRef('idle');
   const settingsRef = useRef({});
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
 
-  // Загружаем настройки при старте
+  // ── Click-through кроме интерактивных зон ──────────────────────────
   useEffect(() => {
-    window.electronAPI.loadSettings().then(s => {
+    let lastIgnore = null;
+    const update = (e) => {
+      const interactive = !!e.target.closest?.('.interactive-zone');
+      const ignore = !interactive;
+      if (ignore !== lastIgnore) {
+        lastIgnore = ignore;
+        window.electronAPI.setIgnoreMouse(ignore);
+      }
+    };
+    document.addEventListener('mousemove', update);
+    return () => {
+      document.removeEventListener('mousemove', update);
+      window.electronAPI.setIgnoreMouse(false);
+    };
+  }, []);
+
+  // ── Загрузка настроек ──────────────────────────────────────────────
+  useEffect(() => {
+    window.electronAPI.loadSettings().then((s) => {
       const loaded = s || {};
       setSettings(loaded);
       if (!loaded.gigachatKey) setShowSettings(true);
     });
   }, []);
 
-  // Слушаем события от main process
+  // ── События от main process ────────────────────────────────────────
   useEffect(() => {
-    const off1 = window.electronAPI.onAnswerChunk(chunk => {
-      setAnswer(prev => prev + chunk);
+    const off1 = window.electronAPI.onAnswerChunk((chunk) => {
+      setAnswer((prev) => prev + chunk);
       setPhase('answering');
     });
     const off2 = window.electronAPI.onAnswerDone(() => setPhase('done'));
-    const off3 = window.electronAPI.onAnswerError(msg => {
+    const off3 = window.electronAPI.onAnswerError((msg) => {
       setErrorMsg(msg);
       setPhase('error');
     });
     const off4 = window.electronAPI.onClearAll(() => {
-      recognitionRef.current?.stop();
-      recognitionRef.current = null;
+      stopRecorder();
       setPhase('idle');
       setTranscript('');
       setAnswer('');
@@ -60,60 +77,104 @@ export default function App() {
     window.electronAPI.getAnswer(text.trim());
   }, []);
 
-  const stopRecording = useCallback(() => {
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-      recognitionRef.current = null;
-    }
-  }, []);
+  function stopRecorder() {
+    const r = recorderRef.current;
+    if (!r) return;
+    recorderRef.current = null;
+    try { r.processor.disconnect(); } catch {}
+    try { r.source.disconnect(); } catch {}
+    try { r.muteGain.disconnect(); } catch {}
+    try { r.stream.getTracks().forEach((t) => t.stop()); } catch {}
+    try { r.ctx.close(); } catch {}
+  }
 
-  const startRecording = useCallback(() => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) {
-      setErrorMsg('Web Speech API недоступен. Попробуй перезапустить приложение.');
-      setPhase('error');
-      return;
-    }
-
-    setPhase('recording');
+  const startRecording = useCallback(async () => {
     setTranscript('');
     setAnswer('');
     setErrorMsg('');
 
-    const recognition = new SR();
-    recognition.lang = settingsRef.current.lang || 'ru-RU';
-    recognition.continuous = true;
-    recognition.interimResults = true;
-
-    let finalText = '';
-
-    recognition.onresult = (event) => {
-      let interim = '';
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        if (event.results[i].isFinal) {
-          finalText += event.results[i][0].transcript;
-        } else {
-          interim = event.results[i][0].transcript;
-        }
-      }
-      setTranscript(finalText + interim);
-    };
-
-    recognition.onerror = (e) => {
-      if (e.error === 'no-speech' || e.error === 'aborted') return;
-      setErrorMsg(`Ошибка микрофона: ${e.error}`);
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+      setErrorMsg('Микрофон недоступен: ' + (e.message || e.name));
       setPhase('error');
+      return;
+    }
+
+    let ctx;
+    try {
+      ctx = new AudioContext({ sampleRate: 16000 });
+    } catch {
+      ctx = new AudioContext();
+    }
+
+    const source = ctx.createMediaStreamSource(stream);
+    const processor = ctx.createScriptProcessor(4096, 1, 1);
+    const muteGain = ctx.createGain();
+    muteGain.gain.value = 0;
+
+    const chunks = [];
+    processor.onaudioprocess = (e) => {
+      const input = e.inputBuffer.getChannelData(0);
+      const int16 = new Int16Array(input.length);
+      for (let i = 0; i < input.length; i++) {
+        const s = Math.max(-1, Math.min(1, input[i]));
+        int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+      }
+      chunks.push(int16);
     };
 
-    recognition.onend = () => {
-      if (phaseRef.current !== 'recording') return;
-      const text = finalText.trim();
-      if (text.length < 2) { setPhase('idle'); return; }
+    source.connect(processor);
+    processor.connect(muteGain);
+    muteGain.connect(ctx.destination);
+
+    recorderRef.current = { stream, ctx, source, processor, muteGain, chunks, sampleRate: ctx.sampleRate };
+    setPhase('recording');
+  }, []);
+
+  const stopRecording = useCallback(async () => {
+    const r = recorderRef.current;
+    if (!r) return;
+
+    const { chunks, sampleRate } = r;
+    stopRecorder();
+
+    const totalLen = chunks.reduce((a, c) => a + c.length, 0);
+    if (totalLen < sampleRate * 0.3) {
+      setPhase('idle');
+      return;
+    }
+
+    let pcm;
+    if (sampleRate === 16000) {
+      const merged = new Int16Array(totalLen);
+      let off = 0;
+      for (const c of chunks) { merged.set(c, off); off += c.length; }
+      pcm = merged;
+    } else {
+      // Простейший линейный ресэмпл, если AudioContext отказался от 16k
+      const ratio = sampleRate / 16000;
+      const targetLen = Math.floor(totalLen / ratio);
+      pcm = new Int16Array(targetLen);
+      const flat = new Int16Array(totalLen);
+      let off = 0;
+      for (const c of chunks) { flat.set(c, off); off += c.length; }
+      for (let i = 0; i < targetLen; i++) pcm[i] = flat[Math.floor(i * ratio)] || 0;
+    }
+
+    setPhase('transcribing');
+    try {
+      const text = await window.electronAPI.recognizeAudio(pcm.buffer);
+      if (!text || text.length < 2) {
+        setPhase('idle');
+        return;
+      }
       submitQuestion(text);
-    };
-
-    recognitionRef.current = recognition;
-    recognition.start();
+    } catch (e) {
+      setErrorMsg('Распознавание: ' + e.message);
+      setPhase('error');
+    }
   }, [submitQuestion]);
 
   const toggleRecording = useCallback(() => {
@@ -122,7 +183,6 @@ export default function App() {
     else if (p === 'idle' || p === 'done' || p === 'error') startRecording();
   }, [startRecording, stopRecording]);
 
-  // Горячая клавиша Ctrl+Shift+R из main process
   useEffect(() => {
     const off = window.electronAPI.onToggleRecording(toggleRecording);
     return off;
@@ -132,12 +192,12 @@ export default function App() {
     const q = manualInput.trim();
     if (!q) return;
     setManualInput('');
-    stopRecording();
+    stopRecorder();
     submitQuestion(q);
   };
 
   const handleClear = () => {
-    stopRecording();
+    stopRecorder();
     setPhase('idle');
     setTranscript('');
     setAnswer('');
@@ -150,28 +210,29 @@ export default function App() {
     await window.electronAPI.saveSettings(merged);
   };
 
-  const isBusy = phase === 'thinking' || phase === 'answering';
+  const isBusy = phase === 'thinking' || phase === 'answering' || phase === 'transcribing';
 
   return (
     <div className="app">
-      {/* ── Шапка (drag area) ─────────────────────────────── */}
-      <div className="header drag-handle">
+      {/* ── Шапка ─────────────────────────────────────── */}
+      <div className="header drag-handle interactive-zone">
         <div className="header-left">
           <span className={`dot ${phase === 'recording' ? 'dot-red' : 'dot-green'}`} />
           <span className="header-title">Inter Helper</span>
         </div>
         <div className="header-right">
-          <span className="hotkey-hint">⌃⇧H скрыть</span>
-          <button className="icon-btn" onClick={() => setShowSettings(s => !s)}>⚙</button>
+          <button className="icon-btn" onClick={() => window.electronAPI.toggleHotkeysWindow()} title="Горячие клавиши">⌨</button>
+          <button className="icon-btn" onClick={() => setShowSettings((s) => !s)} title="Настройки">⚙</button>
+          <button className="icon-btn icon-btn-close" onClick={() => window.electronAPI.quitApp()} title="Закрыть">✕</button>
         </div>
       </div>
 
-      {/* ── Настройки ─────────────────────────────────────── */}
       {showSettings ? (
-        <Settings settings={settings} onSave={handleSaveSettings} onClose={() => setShowSettings(false)} />
+        <div className="interactive-zone settings-wrap">
+          <Settings settings={settings} onSave={handleSaveSettings} onClose={() => setShowSettings(false)} />
+        </div>
       ) : (
         <>
-          {/* ── Транскрипт ──────────────────────────────────── */}
           {transcript && (
             <div className="transcript-bar">
               <span className="transcript-label">Q:</span>
@@ -179,7 +240,6 @@ export default function App() {
             </div>
           )}
 
-          {/* ── Ответ ───────────────────────────────────────── */}
           <AnswerPanel
             phase={phase}
             answer={answer}
@@ -187,8 +247,7 @@ export default function App() {
             onRetry={startRecording}
           />
 
-          {/* ── Кнопки ──────────────────────────────────────── */}
-          <div className="footer">
+          <div className="footer interactive-zone">
             <button
               className={`record-btn ${phase === 'recording' ? 'active' : ''}`}
               onClick={toggleRecording}
@@ -210,14 +269,13 @@ export default function App() {
             )}
           </div>
 
-          {/* ── Ввод текстом ────────────────────────────────── */}
-          <div className="input-row">
+          <div className="input-row interactive-zone">
             <input
               className="text-input"
               placeholder="или напиши вопрос вручную..."
               value={manualInput}
-              onChange={e => setManualInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleManualSubmit()}
+              onChange={(e) => setManualInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleManualSubmit()}
               disabled={isBusy || phase === 'recording'}
             />
             <button
@@ -225,13 +283,6 @@ export default function App() {
               onClick={handleManualSubmit}
               disabled={!manualInput.trim() || isBusy}
             >→</button>
-          </div>
-
-          {/* ── Подсказки горячих клавиш ────────────────────── */}
-          <div className="hotkeys-bar">
-            <span>⌃⇧R — запись</span>
-            <span>⌃⇧H — скрыть</span>
-            <span>⌃⇧C — очистить</span>
           </div>
         </>
       )}

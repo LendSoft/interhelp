@@ -1,8 +1,10 @@
 const { spawn } = require('child_process');
 const path = require('path');
+const waitOn = require('wait-on');
 
 const ROOT = path.join(__dirname, '..');
 const ELECTRON_BIN = path.join(ROOT, 'node_modules', 'electron', 'dist', 'electron.exe');
+const URL = 'http://127.0.0.1:5173';
 
 function startVite() {
   return spawn('node', ['node_modules/vite/bin/vite.js'], {
@@ -25,16 +27,21 @@ async function main() {
   console.log('[dev] Запускаю Vite...');
   const vite = startVite();
 
-  // Vite стартует за ~300ms, даём 3 секунды с запасом
-  await new Promise(r => setTimeout(r, 3000));
-
-  console.log('[dev] Запускаю Electron...');
-  startElectron();
-
   const cleanup = () => { vite.kill(); process.exit(0); };
   process.on('exit', () => vite.kill());
   process.on('SIGINT', cleanup);
   process.on('SIGTERM', cleanup);
+
+  // Ждём, пока Vite реально начнёт отдавать index.html (включая пре-бандл зависимостей).
+  await waitOn({
+    resources: [`http-get://127.0.0.1:5173`],
+    timeout: 60_000,
+    interval: 200,
+    validateStatus: status => status >= 200 && status < 400,
+  });
+
+  console.log('[dev] Запускаю Electron...');
+  startElectron();
 }
 
-main();
+main().catch(e => { console.error('[dev]', e); process.exit(1); });

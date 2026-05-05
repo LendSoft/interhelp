@@ -27,11 +27,19 @@ export default function Settings({ settings, onSave, onClose }) {
           onChange={e => set('gigachatKey', e.target.value)}
         />
         <p className="field-hint">
-          Получи на{' '}
-          <a href="https://developers.sber.ru/studio/gigachat" target="_blank" rel="noreferrer">
-            developers.sber.ru
-          </a>
-          {' '}→ API ключи → Авторизационные данные
+          developers.sber.ru → Мой GigaChat API
+        </p>
+
+        <label className="field-label">SaluteSpeech Authorization Key</label>
+        <input
+          className="field-input"
+          type="password"
+          placeholder="Base64 ключ SaluteSpeech (распознавание речи)"
+          value={form.salutespeechKey || ''}
+          onChange={e => set('salutespeechKey', e.target.value)}
+        />
+        <p className="field-hint">
+          developers.sber.ru → Мой SaluteSpeech API
         </p>
 
         <label className="field-label">Модель</label>

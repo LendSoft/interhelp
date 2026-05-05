@@ -18,6 +18,15 @@ export default function AnswerPanel({ phase, answer, errorMsg, onRetry }) {
     );
   }
 
+  if (phase === 'transcribing') {
+    return (
+      <div className="empty-state">
+        <div className="spinner" />
+        <p className="hint-text">Распознаю...</p>
+      </div>
+    );
+  }
+
   if (phase === 'thinking') {
     return (
       <div className="empty-state">
