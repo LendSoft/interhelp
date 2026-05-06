@@ -53,6 +53,15 @@ export default function Settings({ settings, onSave, onClose }) {
           <option value="GigaChat-Max">GigaChat-Max — максимум</option>
         </select>
 
+        <label className="field-checkbox">
+          <input
+            type="checkbox"
+            checked={!!form.autoMode}
+            onChange={e => set('autoMode', e.target.checked)}
+          />
+          <span>Авто-режим: останавливать запись по тишине и стартовать снова после ответа</span>
+        </label>
+
         <label className="field-label">Язык распознавания</label>
         <select
           className="field-select"

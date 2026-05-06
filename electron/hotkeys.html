@@ -19,6 +19,7 @@
       backdrop-filter: blur(20px);
       display: flex; flex-direction: column;
       overflow: hidden;
+      min-height: 0;
     }
 
     .head {
@@ -37,7 +38,18 @@
     }
     .close:hover { color: #b91c1c; background: rgba(220, 38, 38, 0.12); }
 
-    .body { padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+    .body {
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      overflow-y: auto;
+      flex: 1;
+      min-height: 0;
+    }
+    .body::-webkit-scrollbar { width: 4px; }
+    .body::-webkit-scrollbar-track { background: transparent; }
+    .body::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.2); border-radius: 2px; }
 
     .row {
       display: flex; align-items: center; justify-content: space-between;
@@ -94,7 +106,11 @@
     const ACTIONS = [
       { key: 'toggleRecording', label: 'Старт / стоп записи' },
       { key: 'toggleHide',      label: 'Скрыть / показать окно' },
-      { key: 'clearAll',        label: 'Очистить' },
+      { key: 'clearAll',        label: 'Очистить чат' },
+      { key: 'scrollUp',        label: 'Чат: прокрутить вверх' },
+      { key: 'scrollDown',      label: 'Чат: прокрутить вниз' },
+      { key: 'scrollTop',       label: 'Чат: в самое начало' },
+      { key: 'scrollBottom',    label: 'Чат: в самый низ' },
     ];
 
     const body = document.getElementById('body');

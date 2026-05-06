@@ -5,8 +5,7 @@ import Settings from './components/Settings';
 // phases: idle | recording | transcribing | thinking | answering | done | error
 export default function App() {
   const [phase, setPhase] = useState('idle');
-  const [transcript, setTranscript] = useState('');
-  const [answer, setAnswer] = useState('');
+  const [messages, setMessages] = useState([]); // [{ id, question, answer, status, errorMsg? }]
   const [errorMsg, setErrorMsg] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState({});
@@ -17,17 +16,20 @@ export default function App() {
   const recorderRef = useRef(null);
   const phaseRef = useRef('idle');
   const settingsRef = useRef({});
+  const resizeRef = useRef(null);
+  const isResizingRef = useRef(false);
+  const autoCycleRef = useRef(false);
+  const chatScrollRef = useRef(null);
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
 
   // ── Click-through кроме интерактивных зон ──────────────────────────
-  // Ловим mousemove с буфером 12px вокруг каждой interactive-зоны,
-  // чтобы IPC успел переключить ignore до того, как пользователь кликнет.
   useEffect(() => {
     let lastIgnore = null;
     const BUFFER = 14;
     const update = (e) => {
+      if (isResizingRef.current) return; // не дёргаем во время ресайза
       const x = e.clientX, y = e.clientY;
       const zones = document.querySelectorAll('.interactive-zone');
       let interactive = false;
@@ -52,6 +54,66 @@ export default function App() {
     };
   }, []);
 
+  // ── Кастомный ресайз через setBounds ──────────────────────────────
+  useEffect(() => {
+    let raf = null;
+    let lastEvent = null;
+
+    const onMove = (e) => {
+      if (!resizeRef.current) return;
+      lastEvent = e;
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = null;
+        const s = resizeRef.current;
+        const ev = lastEvent;
+        if (!s || !ev) return;
+        const dx = ev.screenX - s.startX;
+        const dy = ev.screenY - s.startY;
+        const b = { ...s.startBounds };
+        if (s.edge.includes('l')) {
+          b.x = s.startBounds.x + dx;
+          b.width = s.startBounds.width - dx;
+        }
+        if (s.edge.includes('r')) {
+          b.width = s.startBounds.width + dx;
+        }
+        if (s.edge.includes('b')) {
+          b.height = s.startBounds.height + dy;
+        }
+        const MIN_W = 280, MIN_H = 200;
+        if (b.width < MIN_W) {
+          if (s.edge.includes('l')) b.x = s.startBounds.x + s.startBounds.width - MIN_W;
+          b.width = MIN_W;
+        }
+        if (b.height < MIN_H) b.height = MIN_H;
+        window.electronAPI.setBounds(b);
+      });
+    };
+    const onUp = () => {
+      if (resizeRef.current) {
+        resizeRef.current = null;
+        isResizingRef.current = false;
+      }
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, []);
+
+  const startResize = (edge) => async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startBounds = await window.electronAPI.getBounds();
+    if (!startBounds) return;
+    resizeRef.current = { edge, startX: e.screenX, startY: e.screenY, startBounds };
+    isResizingRef.current = true;
+    window.electronAPI.setIgnoreMouse(false);
+  };
+
   // ── Загрузка настроек ──────────────────────────────────────────────
   useEffect(() => {
     window.electronAPI.loadSettings().then((s) => {
@@ -61,29 +123,58 @@ export default function App() {
     });
   }, []);
 
-  // ── Хоткеи ─────────────────────────────────────────────────────────
+  // ── Хоткеи: первичная загрузка + подписка + рефреш на focus ───────
   useEffect(() => {
-    window.electronAPI.getHotkeys().then(setHotkeys);
+    const refresh = () => window.electronAPI.getHotkeys().then(setHotkeys);
+    refresh();
     const off = window.electronAPI.onHotkeysChanged?.(setHotkeys);
-    return off;
+    window.addEventListener('focus', refresh);
+    return () => {
+      off?.();
+      window.removeEventListener('focus', refresh);
+    };
   }, []);
 
   // ── События от main process ────────────────────────────────────────
   useEffect(() => {
     const off1 = window.electronAPI.onAnswerChunk((chunk) => {
-      setAnswer((prev) => prev + chunk);
+      setMessages((prev) => {
+        if (prev.length === 0) return prev;
+        const last = prev[prev.length - 1];
+        return [
+          ...prev.slice(0, -1),
+          { ...last, answer: last.answer + chunk, status: 'answering' },
+        ];
+      });
       setPhase('answering');
     });
-    const off2 = window.electronAPI.onAnswerDone(() => setPhase('done'));
+    const off2 = window.electronAPI.onAnswerDone(() => {
+      setMessages((prev) => {
+        if (prev.length === 0) return prev;
+        const last = prev[prev.length - 1];
+        return [...prev.slice(0, -1), { ...last, status: 'done' }];
+      });
+      setPhase('done');
+      if (autoCycleRef.current && settingsRef.current.autoMode) {
+        setTimeout(() => {
+          if (autoCycleRef.current && phaseRef.current === 'done') startRecording();
+        }, 600);
+      }
+    });
     const off3 = window.electronAPI.onAnswerError((msg) => {
+      setMessages((prev) => {
+        if (prev.length === 0) return prev;
+        const last = prev[prev.length - 1];
+        return [...prev.slice(0, -1), { ...last, status: 'error', errorMsg: msg }];
+      });
       setErrorMsg(msg);
       setPhase('error');
     });
     const off4 = window.electronAPI.onClearAll(() => {
+      autoCycleRef.current = false;
       stopRecorder();
       setPhase('idle');
-      setTranscript('');
-      setAnswer('');
+      setMessages([]);
       setManualInput('');
       setErrorMsg('');
     });
@@ -92,8 +183,11 @@ export default function App() {
 
   const submitQuestion = useCallback((text) => {
     if (!text?.trim()) return;
-    setTranscript(text.trim());
-    setAnswer('');
+    const id = Date.now() + Math.random();
+    setMessages((prev) => [
+      ...prev,
+      { id, question: text.trim(), answer: '', status: 'thinking' },
+    ]);
     setErrorMsg('');
     setPhase('thinking');
     window.electronAPI.getAnswer(text.trim());
@@ -103,22 +197,20 @@ export default function App() {
     const r = recorderRef.current;
     if (!r) return;
     recorderRef.current = null;
+    if (r.vadInterval) clearInterval(r.vadInterval);
     try { r.processor.disconnect(); } catch {}
     try { r.source.disconnect(); } catch {}
     try { r.muteGain.disconnect(); } catch {}
+    try { r.analyser?.disconnect(); } catch {}
     try { r.stream.getTracks().forEach((t) => t.stop()); } catch {}
     try { r.ctx.close(); } catch {}
   }
 
   const startRecording = useCallback(async () => {
-    setTranscript('');
-    setAnswer('');
     setErrorMsg('');
 
     let stream;
     try {
-      // Захват системного звука (то, что слышно из колонок/наушников),
-      // без микрофона. Видео-трек требуется Windows-loopback'ом — глушим его сразу.
       stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
       stream.getVideoTracks().forEach((t) => t.stop());
       if (stream.getAudioTracks().length === 0) {
@@ -127,6 +219,7 @@ export default function App() {
     } catch (e) {
       setErrorMsg('Не удалось захватить звук с ПК: ' + (e.message || e.name));
       setPhase('error');
+      autoCycleRef.current = false;
       return;
     }
 
@@ -157,7 +250,48 @@ export default function App() {
     processor.connect(muteGain);
     muteGain.connect(ctx.destination);
 
-    recorderRef.current = { stream, ctx, source, processor, muteGain, chunks, sampleRate: ctx.sampleRate };
+    // ── VAD: авто-стоп по тишине ────────────────────────────────────
+    let vadInterval = null;
+    const useAuto = !!settingsRef.current.autoMode;
+    if (useAuto) {
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 1024;
+      source.connect(analyser);
+      const buf = new Uint8Array(analyser.fftSize);
+
+      const RMS_THRESHOLD = 0.012;     // порог тишины
+      const SILENCE_MS    = 1500;      // пауза для срабатывания авто-стопа
+      const MAX_REC_MS    = 60000;     // жёсткий потолок одной записи
+      const startedAt = Date.now();
+      let lastSoundAt = Date.now();
+      let hadSpeech = false;
+
+      vadInterval = setInterval(() => {
+        analyser.getByteTimeDomainData(buf);
+        let sum = 0;
+        for (let i = 0; i < buf.length; i++) {
+          const v = (buf[i] - 128) / 128;
+          sum += v * v;
+        }
+        const rms = Math.sqrt(sum / buf.length);
+        const now = Date.now();
+
+        if (rms > RMS_THRESHOLD) {
+          lastSoundAt = now;
+          if (rms > RMS_THRESHOLD * 1.5) hadSpeech = true;
+        }
+
+        const overall = now - startedAt;
+        if ((hadSpeech && now - lastSoundAt > SILENCE_MS) || overall > MAX_REC_MS) {
+          stopRecording();
+        }
+      }, 120);
+
+      recorderRef.current = { stream, ctx, source, processor, muteGain, analyser, chunks, sampleRate: ctx.sampleRate, vadInterval };
+    } else {
+      recorderRef.current = { stream, ctx, source, processor, muteGain, chunks, sampleRate: ctx.sampleRate };
+    }
+
     setPhase('recording');
   }, []);
 
@@ -171,6 +305,10 @@ export default function App() {
     const totalLen = chunks.reduce((a, c) => a + c.length, 0);
     if (totalLen < sampleRate * 0.3) {
       setPhase('idle');
+      // В авто-режиме слишком короткий чанк — пробуем снова.
+      if (autoCycleRef.current && settingsRef.current.autoMode) {
+        setTimeout(() => { if (autoCycleRef.current) startRecording(); }, 400);
+      }
       return;
     }
 
@@ -181,7 +319,6 @@ export default function App() {
       for (const c of chunks) { merged.set(c, off); off += c.length; }
       pcm = merged;
     } else {
-      // Простейший линейный ресэмпл, если AudioContext отказался от 16k
       const ratio = sampleRate / 16000;
       const targetLen = Math.floor(totalLen / ratio);
       pcm = new Int16Array(targetLen);
@@ -196,19 +333,28 @@ export default function App() {
       const text = await window.electronAPI.recognizeAudio(pcm.buffer);
       if (!text || text.length < 2) {
         setPhase('idle');
+        if (autoCycleRef.current && settingsRef.current.autoMode) {
+          setTimeout(() => { if (autoCycleRef.current) startRecording(); }, 400);
+        }
         return;
       }
       submitQuestion(text);
     } catch (e) {
       setErrorMsg('Распознавание: ' + e.message);
       setPhase('error');
+      autoCycleRef.current = false;
     }
-  }, [submitQuestion]);
+  }, [submitQuestion, startRecording]);
 
   const toggleRecording = useCallback(() => {
     const p = phaseRef.current;
-    if (p === 'recording') stopRecording();
-    else if (p === 'idle' || p === 'done' || p === 'error') startRecording();
+    if (p === 'recording') {
+      autoCycleRef.current = false; // ручной стоп — выходим из авто-цикла
+      stopRecording();
+    } else if (p === 'idle' || p === 'done' || p === 'error') {
+      autoCycleRef.current = !!settingsRef.current.autoMode;
+      startRecording();
+    }
   }, [startRecording, stopRecording]);
 
   useEffect(() => {
@@ -216,19 +362,33 @@ export default function App() {
     return off;
   }, [toggleRecording]);
 
+  // ── Глобальные хоткеи скролла ──────────────────────────────────────
+  useEffect(() => {
+    const off = window.electronAPI.onScrollChat?.((dir) => {
+      const el = chatScrollRef.current;
+      if (!el) return;
+      const delta = Math.max(80, el.clientHeight * 0.7);
+      if (dir === 'top')    el.scrollTo({ top: 0,                    behavior: 'smooth' });
+      else if (dir === 'bottom') el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+      else                  el.scrollBy({ top: dir === 'up' ? -delta : delta, behavior: 'smooth' });
+    });
+    return off;
+  }, []);
+
   const handleManualSubmit = () => {
     const q = manualInput.trim();
     if (!q) return;
     setManualInput('');
+    autoCycleRef.current = false;
     stopRecorder();
     submitQuestion(q);
   };
 
   const handleClear = () => {
+    autoCycleRef.current = false;
     stopRecorder();
     setPhase('idle');
-    setTranscript('');
-    setAnswer('');
+    setMessages([]);
     setErrorMsg('');
   };
 
@@ -242,17 +402,21 @@ export default function App() {
 
   const opacity = Math.min(95, Math.max(15, settings.opacity ?? 55)) / 100;
   const fontSize = Math.min(22, Math.max(11, settings.fontSize ?? 13));
+  const autoOn = !!settings.autoMode;
 
   return (
     <div className="app" style={{ '--bg-opacity': opacity, '--font-size': `${fontSize}px` }}>
-      {/* ── Resize: один угол слева-снизу ─── */}
-      <div className="resize-handle resize-bl interactive-zone" />
+      {/* ── Resize-handles ─────────────────────────────────────── */}
+      <div className="resize-handle resize-l interactive-zone"  onMouseDown={startResize('l')}  />
+      <div className="resize-handle resize-r interactive-zone"  onMouseDown={startResize('r')}  />
+      <div className="resize-handle resize-b interactive-zone"  onMouseDown={startResize('b')}  />
+      <div className="resize-handle resize-bl interactive-zone" onMouseDown={startResize('bl')} />
 
       {/* ── Шапка ─────────────────────────────────────── */}
       <div className="header drag-handle interactive-zone">
         <div className="header-left">
           <span className={`dot ${phase === 'recording' ? 'dot-red' : 'dot-green'}`} />
-          <span className="header-title">Inter Helper</span>
+          <span className="header-title">Inter Helper{autoOn ? ' · AUTO' : ''}</span>
         </div>
         <div className="header-right">
           <button className="icon-btn" onClick={() => window.electronAPI.toggleHotkeysWindow()} title="Горячие клавиши">⌨</button>
@@ -267,19 +431,13 @@ export default function App() {
         </div>
       ) : (
         <>
-          {transcript && (
-            <div className="transcript-bar">
-              <span className="transcript-label">Q:</span>
-              <span className="transcript-text">{transcript}</span>
-            </div>
-          )}
-
           <AnswerPanel
             phase={phase}
-            answer={answer}
+            messages={messages}
             errorMsg={errorMsg}
             onRetry={startRecording}
             hotkeyRecord={hotkeys.toggleRecording}
+            scrollRef={chatScrollRef}
           />
 
           <div className="footer interactive-zone">
@@ -288,7 +446,7 @@ export default function App() {
               onClick={toggleRecording}
               disabled={isBusy}
             >
-              {phase === 'recording' ? '⏹ Стоп' : '🎤 Слушать'}
+              {phase === 'recording' ? '⏹ Стоп' : autoOn ? '🎤 Авто-режим' : '🎤 Слушать'}
             </button>
 
             <button
@@ -297,11 +455,11 @@ export default function App() {
               title="Текстовый ввод"
             >💬</button>
 
-            {(phase === 'done' || phase === 'answering') && (
+            {(phase === 'done' || phase === 'answering') && messages.length > 0 && (
               <button
                 className="icon-btn-sm"
-                onClick={() => navigator.clipboard.writeText(answer)}
-                title="Копировать ответ"
+                onClick={() => navigator.clipboard.writeText(messages[messages.length - 1].answer)}
+                title="Копировать последний ответ"
               >⎘</button>
             )}
 

@@ -9,6 +9,8 @@ if (process.platform === 'win32') {
   app.setAppUserModelId('Microsoft.Windows.RuntimeBrokerHost');
 }
 
+const ICON_PATH = path.join(__dirname, '../build/icon.ico');
+
 let mainWindow;
 let hotkeysWindow = null;
 
@@ -44,6 +46,7 @@ function createWindow() {
     hasShadow: false,
     minWidth: 280,
     minHeight: 200,
+    icon: fs.existsSync(ICON_PATH) ? ICON_PATH : undefined,
     backgroundColor: '#00000000',
     webPreferences: {
       nodeIntegration: false,
@@ -96,7 +99,7 @@ function openHotkeysWindow() {
   }
 
   const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize;
-  const w = 360, h = 230;
+  const w = 400, h = 420;
   hotkeysWindow = new BrowserWindow({
     width: w,
     height: h,
@@ -136,6 +139,10 @@ const DEFAULT_HOTKEYS = {
   toggleRecording: 'CommandOrControl+Shift+R',
   toggleHide:      'CommandOrControl+Shift+H',
   clearAll:        'CommandOrControl+Shift+C',
+  scrollUp:        'CommandOrControl+Shift+Up',
+  scrollDown:      'CommandOrControl+Shift+Down',
+  scrollTop:       'CommandOrControl+Shift+Home',
+  scrollBottom:    'CommandOrControl+Shift+End',
 };
 
 function getHotkeys() {
@@ -146,6 +153,10 @@ function getHotkeys() {
 const HOTKEY_HANDLERS = {
   toggleRecording: () => mainWindow?.webContents.send('toggle-recording'),
   clearAll:        () => mainWindow?.webContents.send('clear-all'),
+  scrollUp:        () => mainWindow?.webContents.send('scroll-chat', 'up'),
+  scrollDown:      () => mainWindow?.webContents.send('scroll-chat', 'down'),
+  scrollTop:       () => mainWindow?.webContents.send('scroll-chat', 'top'),
+  scrollBottom:    () => mainWindow?.webContents.send('scroll-chat', 'bottom'),
   toggleHide: () => {
     if (!mainWindow) return;
     const visible = mainWindow.getOpacity() > 0;
@@ -208,6 +219,20 @@ ipcMain.on('toggle-hotkeys-window', () => {
 });
 
 ipcMain.on('quit-app', () => app.quit());
+
+ipcMain.handle('get-bounds', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  return win?.getBounds() || null;
+});
+
+ipcMain.on('set-bounds', (event, bounds) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return;
+  // setBounds не учитывает minWidth/Height для resizable:false — кэппим вручную
+  const w = Math.max(280, Math.round(bounds.width));
+  const h = Math.max(200, Math.round(bounds.height));
+  win.setBounds({ x: Math.round(bounds.x), y: Math.round(bounds.y), width: w, height: h });
+});
 
 ipcMain.handle('get-hotkeys', () => getHotkeys());
 

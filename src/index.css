@@ -19,7 +19,7 @@ body {
 /* Прозрачность задаётся через CSS-переменную --bg-opacity (0..1).
    Меняется в настройках слайдером, либо вручную — здесь дефолт. */
 .app {
-  --bg-opacity: 0.55;
+  --bg-opacity: 0.25;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -33,7 +33,7 @@ body {
 }
 
 /* Интерактивные зоны — чуть плотнее основного фона */
-.interactive-zone { background: rgba(255, 255, 255, calc(var(--bg-opacity) + 0.25)); }
+.interactive-zone { background: rgba(255, 255, 255, calc(var(--bg-opacity) + 0.1)); }
 
 /* ── Анти-демо защита ───────────────────────────────────────────────
    Принудительно стандартный курсор везде, чтобы ОС не показала
@@ -41,18 +41,21 @@ body {
 .app, .app * { cursor: default !important; }
 .settings-wrap { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 
-/* ── Resize: один угол слева-снизу с маркером ──────────────────── */
+/* ── Resize-handles ─────────────────────────────────────────────── */
 .resize-handle {
   position: absolute;
   z-index: 20;
   background: transparent !important; /* перебиваем .interactive-zone fill */
 }
+.resize-l { left: 0;  top: 0; width: 6px; height: 100%; }
+.resize-r { right: 0; top: 0; width: 6px; height: 100%; }
+.resize-b { left: 0;  bottom: 0; width: 100%; height: 6px; }
 .resize-bl {
   left: 0;
   bottom: 0;
   width: 16px;
   height: 16px;
-  cursor: nesw-resize;
+  z-index: 21; /* поверх resize-l/b чтобы угол захватывал диагональ */
 }
 .resize-bl::before {
   content: '';
@@ -64,10 +67,9 @@ body {
   border-left: 1.5px solid rgba(0, 0, 0, 0.28);
   border-bottom: 1.5px solid rgba(0, 0, 0, 0.28);
   border-radius: 0 0 0 4px;
-  transition: border-color 0.15s;
   pointer-events: none;
 }
-/* hover на ресайзе убран намеренно — чтобы не светило в screen-share */
+/* hover не меняем намеренно — анти-демо */
 
 /* ── Шапка (узкая) ──────────────────────────────────────────────── */
 .header {
@@ -133,7 +135,7 @@ input, select, textarea { -webkit-app-region: no-drag; }
 .transcript-bar {
   padding: 7px 14px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-  background: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.2);
   flex-shrink: 0;
   display: flex;
   gap: 6px;
@@ -231,27 +233,81 @@ kbd {
   transition: background 0.15s;
 }
 
-/* ── Область ответа ─────────────────────────────────────────────── */
-.answer-area {
+/* ── Чат: список Q+A ────────────────────────────────────────────── */
+.chat-area {
   flex: 1;
   overflow-y: auto;
-  padding: 12px 14px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  scroll-behavior: smooth;
+}
+
+.chat-area::-webkit-scrollbar { width: 3px; }
+.chat-area::-webkit-scrollbar-track { background: transparent; }
+.chat-area::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 2px;
+}
+
+.chat-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.chat-q {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  padding: 0 2px;
+}
+.chat-q-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #666;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+.chat-q-text {
+  font-size: calc(var(--font-size, 13px) - 1px);
+  color: #333;
+  font-style: italic;
+  line-height: 1.45;
+  word-break: break-word;
 }
 
 .answer-card {
-  background: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.2);
   border: 1px solid rgba(0, 0, 0, 0.06);
   border-radius: 10px;
   padding: 10px 12px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
-.answer-area::-webkit-scrollbar { width: 3px; }
-.answer-area::-webkit-scrollbar-track { background: transparent; }
-.answer-area::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.18);
-  border-radius: 2px;
+.msg-inline-spinner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
+
+.spinner-sm {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(0, 0, 0, 0.12);
+  border-top-color: #16a34a;
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}
+
+.chat-tail {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 8px;
+}
+.pulse-ring-sm { width: 12px; height: 12px; }
 
 .answer-text {
   font-family: inherit;
@@ -416,6 +472,17 @@ kbd {
 }
 .field-select option { background: #fff; color: #1a1a1a; }
 .field-textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
+
+.field-checkbox {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-top: 12px;
+  font-size: 11px;
+  color: #333;
+  line-height: 1.4;
+}
+.field-checkbox input { margin-top: 2px; }
 
 .field-range {
   -webkit-appearance: none;

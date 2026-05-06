@@ -11,6 +11,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   toggleHotkeysWindow: () => ipcRenderer.send('toggle-hotkeys-window'),
   quitApp: () => ipcRenderer.send('quit-app'),
 
+  getBounds: () => ipcRenderer.invoke('get-bounds'),
+  setBounds: (b) => ipcRenderer.send('set-bounds', b),
+
   getHotkeys: () => ipcRenderer.invoke('get-hotkeys'),
   setHotkey: (action, accelerator) => ipcRenderer.invoke('set-hotkey', action, accelerator),
   onHotkeysChanged: (cb) => {
@@ -43,5 +46,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const h = () => cb();
     ipcRenderer.on('clear-all', h);
     return () => ipcRenderer.removeListener('clear-all', h);
+  },
+  onScrollChat: (cb) => {
+    const h = (_, dir) => cb(dir);
+    ipcRenderer.on('scroll-chat', h);
+    return () => ipcRenderer.removeListener('scroll-chat', h);
   },
 });
