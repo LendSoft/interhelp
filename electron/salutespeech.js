@@ -46,6 +46,7 @@ function getToken(authKey) {
       }
     );
     req.on('error', reject);
+    req.setTimeout(15000, () => req.destroy(new Error('Таймаут авторизации SaluteSpeech (15 сек)')));
     req.write(body);
     req.end();
   });
@@ -87,6 +88,7 @@ async function recognize(authKey, pcmBuffer, lang) {
       }
     );
     req.on('error', reject);
+    req.setTimeout(20000, () => req.destroy(new Error('Таймаут распознавания (20 сек)')));
     req.write(pcmBuffer);
     req.end();
   });

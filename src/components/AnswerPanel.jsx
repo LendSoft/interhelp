@@ -1,9 +1,20 @@
-export default function AnswerPanel({ phase, answer, errorMsg, onRetry }) {
+function formatAccel(a) {
+  if (!a) return '';
+  return a
+    .replace('CommandOrControl', 'Ctrl')
+    .replace('CmdOrCtrl', 'Ctrl')
+    .replace(/\+/g, ' + ');
+}
+
+export default function AnswerPanel({ phase, answer, errorMsg, onRetry, hotkeyRecord }) {
   if (phase === 'idle') {
     return (
       <div className="empty-state">
         <div className="mic-icon">🎤</div>
-        <p>Нажми «Слушать» или <kbd>⌃⇧R</kbd><br />и задай вопрос</p>
+        <p>
+          Нажми «Слушать»{hotkeyRecord ? <> или <kbd>{formatAccel(hotkeyRecord)}</kbd></> : null}<br />
+          и задай вопрос
+        </p>
       </div>
     );
   }
@@ -12,8 +23,8 @@ export default function AnswerPanel({ phase, answer, errorMsg, onRetry }) {
     return (
       <div className="empty-state">
         <div className="pulse-ring" />
-        <p className="recording-label">Слушаю...</p>
-        <p className="hint-text">Говори, затем нажми «Стоп»</p>
+        <p className="recording-label">Слушаю звук с ПК...</p>
+        <p className="hint-text">Когда вопрос дозвучит — нажми «Стоп»</p>
       </div>
     );
   }
@@ -48,10 +59,12 @@ export default function AnswerPanel({ phase, answer, errorMsg, onRetry }) {
   // answering | done
   return (
     <div className="answer-area">
-      <pre className="answer-text">
-        {answer}
-        {phase === 'answering' && <span className="cursor">▌</span>}
-      </pre>
+      <div className="answer-card">
+        <pre className="answer-text">
+          {answer}
+          {phase === 'answering' && <span className="cursor">▌</span>}
+        </pre>
+      </div>
     </div>
   );
 }

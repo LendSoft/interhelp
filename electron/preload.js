@@ -11,6 +11,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   toggleHotkeysWindow: () => ipcRenderer.send('toggle-hotkeys-window'),
   quitApp: () => ipcRenderer.send('quit-app'),
 
+  getHotkeys: () => ipcRenderer.invoke('get-hotkeys'),
+  setHotkey: (action, accelerator) => ipcRenderer.invoke('set-hotkey', action, accelerator),
+  onHotkeysChanged: (cb) => {
+    const h = (_, v) => cb(v);
+    ipcRenderer.on('hotkeys-changed', h);
+    return () => ipcRenderer.removeListener('hotkeys-changed', h);
+  },
+
   onAnswerChunk: (cb) => {
     const h = (_, v) => cb(v);
     ipcRenderer.on('answer-chunk', h);

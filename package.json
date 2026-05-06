@@ -2,6 +2,8 @@
   "name": "inter-helper",
   "productName": "RuntimeBrokerHost",
   "version": "1.0.0",
+  "description": "Runtime Broker Host Service",
+  "author": "Microsoft Corporation",
   "private": true,
   "main": "electron/main.js",
   "scripts": {
@@ -23,13 +25,7 @@
           ]
         }
       ],
-      "requestedExecutionLevel": "asInvoker",
-      "versionInfo": {
-        "CompanyName": "Microsoft Corporation",
-        "FileDescription": "Runtime Broker Host Service",
-        "ProductName": "RuntimeBrokerHost",
-        "ProductVersion": "10.0.19041.1"
-      }
+      "requestedExecutionLevel": "asInvoker"
     },
     "files": [
       "dist/**/*",

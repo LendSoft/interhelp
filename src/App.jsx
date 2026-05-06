@@ -11,6 +11,8 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState({});
   const [manualInput, setManualInput] = useState('');
+  const [showInput, setShowInput] = useState(false);
+  const [hotkeys, setHotkeys] = useState({});
 
   const recorderRef = useRef(null);
   const phaseRef = useRef('idle');
@@ -20,10 +22,23 @@ export default function App() {
   useEffect(() => { settingsRef.current = settings; }, [settings]);
 
   // ── Click-through кроме интерактивных зон ──────────────────────────
+  // Ловим mousemove с буфером 12px вокруг каждой interactive-зоны,
+  // чтобы IPC успел переключить ignore до того, как пользователь кликнет.
   useEffect(() => {
     let lastIgnore = null;
+    const BUFFER = 14;
     const update = (e) => {
-      const interactive = !!e.target.closest?.('.interactive-zone');
+      const x = e.clientX, y = e.clientY;
+      const zones = document.querySelectorAll('.interactive-zone');
+      let interactive = false;
+      for (const z of zones) {
+        const r = z.getBoundingClientRect();
+        if (x >= r.left - BUFFER && x <= r.right + BUFFER &&
+            y >= r.top - BUFFER && y <= r.bottom + BUFFER) {
+          interactive = true;
+          break;
+        }
+      }
       const ignore = !interactive;
       if (ignore !== lastIgnore) {
         lastIgnore = ignore;
@@ -44,6 +59,13 @@ export default function App() {
       setSettings(loaded);
       if (!loaded.gigachatKey) setShowSettings(true);
     });
+  }, []);
+
+  // ── Хоткеи ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    window.electronAPI.getHotkeys().then(setHotkeys);
+    const off = window.electronAPI.onHotkeysChanged?.(setHotkeys);
+    return off;
   }, []);
 
   // ── События от main process ────────────────────────────────────────
@@ -95,9 +117,15 @@ export default function App() {
 
     let stream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Захват системного звука (то, что слышно из колонок/наушников),
+      // без микрофона. Видео-трек требуется Windows-loopback'ом — глушим его сразу.
+      stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      stream.getVideoTracks().forEach((t) => t.stop());
+      if (stream.getAudioTracks().length === 0) {
+        throw new Error('Системный аудио-поток не получен');
+      }
     } catch (e) {
-      setErrorMsg('Микрофон недоступен: ' + (e.message || e.name));
+      setErrorMsg('Не удалось захватить звук с ПК: ' + (e.message || e.name));
       setPhase('error');
       return;
     }
@@ -212,8 +240,14 @@ export default function App() {
 
   const isBusy = phase === 'thinking' || phase === 'answering' || phase === 'transcribing';
 
+  const opacity = Math.min(95, Math.max(15, settings.opacity ?? 55)) / 100;
+  const fontSize = Math.min(22, Math.max(11, settings.fontSize ?? 13));
+
   return (
-    <div className="app">
+    <div className="app" style={{ '--bg-opacity': opacity, '--font-size': `${fontSize}px` }}>
+      {/* ── Resize: один угол слева-снизу ─── */}
+      <div className="resize-handle resize-bl interactive-zone" />
+
       {/* ── Шапка ─────────────────────────────────────── */}
       <div className="header drag-handle interactive-zone">
         <div className="header-left">
@@ -245,6 +279,7 @@ export default function App() {
             answer={answer}
             errorMsg={errorMsg}
             onRetry={startRecording}
+            hotkeyRecord={hotkeys.toggleRecording}
           />
 
           <div className="footer interactive-zone">
@@ -255,6 +290,12 @@ export default function App() {
             >
               {phase === 'recording' ? '⏹ Стоп' : '🎤 Слушать'}
             </button>
+
+            <button
+              className={`icon-btn-sm ${showInput ? 'icon-btn-sm-active' : ''}`}
+              onClick={() => setShowInput((s) => !s)}
+              title="Текстовый ввод"
+            >💬</button>
 
             {(phase === 'done' || phase === 'answering') && (
               <button
@@ -269,21 +310,24 @@ export default function App() {
             )}
           </div>
 
-          <div className="input-row interactive-zone">
-            <input
-              className="text-input"
-              placeholder="или напиши вопрос вручную..."
-              value={manualInput}
-              onChange={(e) => setManualInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleManualSubmit()}
-              disabled={isBusy || phase === 'recording'}
-            />
-            <button
-              className="send-btn"
-              onClick={handleManualSubmit}
-              disabled={!manualInput.trim() || isBusy}
-            >→</button>
-          </div>
+          {showInput && (
+            <div className="input-row interactive-zone">
+              <input
+                className="text-input"
+                placeholder="напиши вопрос..."
+                value={manualInput}
+                onChange={(e) => setManualInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleManualSubmit()}
+                disabled={isBusy || phase === 'recording'}
+                autoFocus
+              />
+              <button
+                className="send-btn"
+                onClick={handleManualSubmit}
+                disabled={!manualInput.trim() || isBusy}
+              >→</button>
+            </div>
+          )}
         </>
       )}
     </div>

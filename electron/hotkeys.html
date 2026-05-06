@@ -5,16 +5,18 @@
   <title>Горячие клавиши</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; background: transparent; overflow: hidden;
+    html, body {
+      width: 100%; height: 100%; background: transparent; overflow: hidden;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      color: #e8e8e8; user-select: none; }
+      color: #1a1a1a; user-select: none;
+    }
 
     .panel {
       width: 100%; height: 100%;
-      background: rgba(10, 12, 20, 0.95);
-      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid rgba(0, 0, 0, 0.08);
       border-radius: 12px;
-      backdrop-filter: blur(24px);
+      backdrop-filter: blur(20px);
       display: flex; flex-direction: column;
       overflow: hidden;
     }
@@ -22,9 +24,9 @@
     .head {
       display: flex; align-items: center; justify-content: space-between;
       padding: 8px 12px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      border-bottom: 1px solid rgba(0, 0, 0, 0.07);
       -webkit-app-region: drag;
-      font-size: 11px; font-weight: 700; color: #888;
+      font-size: 11px; font-weight: 700; color: #555;
       letter-spacing: 0.5px; text-transform: uppercase;
     }
 
@@ -33,23 +35,48 @@
       background: none; border: none; color: #555; cursor: pointer;
       font-size: 14px; padding: 2px 6px; border-radius: 4px;
     }
-    .close:hover { color: #aaa; background: rgba(255,255,255,0.07); }
+    .close:hover { color: #b91c1c; background: rgba(220, 38, 38, 0.12); }
 
-    .body { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+    .body { padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
 
     .row {
       display: flex; align-items: center; justify-content: space-between;
-      padding: 6px 8px; background: rgba(255,255,255,0.02);
+      padding: 7px 10px;
+      background: rgba(0, 0, 0, 0.03);
+      border: 1px solid rgba(0, 0, 0, 0.05);
       border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.12s, border-color 0.12s;
     }
-    .row span:first-child { color: #aaa; font-size: 12px; }
+    .row:hover { background: rgba(22, 163, 74, 0.06); border-color: rgba(22, 163, 74, 0.25); }
+    .row.editing {
+      background: rgba(22, 163, 74, 0.12);
+      border-color: rgba(22, 163, 74, 0.5);
+    }
+    .row span:first-child { color: #333; font-size: 12px; }
 
     kbd {
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(0, 0, 0, 0.06);
+      border: 1px solid rgba(0, 0, 0, 0.12);
       border-radius: 4px; padding: 2px 7px;
-      font-family: inherit; font-size: 11px; color: #ccc;
+      font-family: inherit; font-size: 11px; color: #333;
+      min-width: 100px; text-align: center; display: inline-block;
     }
+    .row.editing kbd { color: #15803d; border-color: rgba(22, 163, 74, 0.4); background: #fff; }
+
+    .footer {
+      padding: 6px 12px 10px;
+      font-size: 10px; color: #777; text-align: center;
+      border-top: 1px solid rgba(0, 0, 0, 0.05);
+    }
+
+    .toast {
+      position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+      background: rgba(220, 38, 38, 0.92); color: #fff;
+      padding: 5px 12px; border-radius: 5px; font-size: 11px;
+      opacity: 0; transition: opacity 0.2s;
+    }
+    .toast.show { opacity: 1; }
   </style>
 </head>
 <body>
@@ -58,15 +85,133 @@
       <span>Горячие клавиши</span>
       <button class="close" id="close">✕</button>
     </div>
-    <div class="body">
-      <div class="row"><span>Старт / стоп записи</span> <kbd>Ctrl + Shift + R</kbd></div>
-      <div class="row"><span>Скрыть / показать окно</span> <kbd>Ctrl + Shift + H</kbd></div>
-      <div class="row"><span>Очистить</span> <kbd>Ctrl + Shift + C</kbd></div>
-    </div>
+    <div class="body" id="body"></div>
+    <div class="footer">Кликни строку и нажми новую комбинацию · Esc — отмена</div>
+    <div class="toast" id="toast"></div>
   </div>
+
   <script>
+    const ACTIONS = [
+      { key: 'toggleRecording', label: 'Старт / стоп записи' },
+      { key: 'toggleHide',      label: 'Скрыть / показать окно' },
+      { key: 'clearAll',        label: 'Очистить' },
+    ];
+
+    const body = document.getElementById('body');
+    const toastEl = document.getElementById('toast');
+    let currentHotkeys = {};
+    let editingKey = null;
+
     document.getElementById('close').addEventListener('click', () => window.close());
-    window.addEventListener('keydown', (e) => { if (e.key === 'Escape') window.close(); });
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !editingKey) window.close();
+    });
+
+    function showToast(msg) {
+      toastEl.textContent = msg;
+      toastEl.classList.add('show');
+      setTimeout(() => toastEl.classList.remove('show'), 1800);
+    }
+
+    function format(accel) {
+      if (!accel) return '—';
+      return accel
+        .replace('CommandOrControl', 'Ctrl')
+        .replace('CmdOrCtrl', 'Ctrl')
+        .replace(/\+/g, ' + ');
+    }
+
+    function render() {
+      body.innerHTML = '';
+      for (const a of ACTIONS) {
+        const row = document.createElement('div');
+        row.className = 'row' + (editingKey === a.key ? ' editing' : '');
+        row.dataset.key = a.key;
+        row.innerHTML =
+          `<span>${a.label}</span>` +
+          `<kbd>${editingKey === a.key ? 'нажми клавиши...' : format(currentHotkeys[a.key])}</kbd>`;
+        row.addEventListener('click', () => startEdit(a.key));
+        body.appendChild(row);
+      }
+    }
+
+    function startEdit(key) {
+      editingKey = key;
+      render();
+    }
+
+    function buildAccelerator(e) {
+      // Используем e.code (физическая клавиша) — иначе на русской раскладке
+      // приедет Cyrillic-символ, а Electron-акселератор требует ASCII.
+      if (['ControlLeft','ControlRight','MetaLeft','MetaRight','AltLeft','AltRight','ShiftLeft','ShiftRight'].includes(e.code)) {
+        return null;
+      }
+
+      const parts = [];
+      if (e.ctrlKey || e.metaKey) parts.push('CommandOrControl');
+      if (e.altKey) parts.push('Alt');
+      if (e.shiftKey) parts.push('Shift');
+
+      const code = e.code;
+      let main = null;
+      if (/^Key([A-Z])$/.test(code)) main = code.slice(3);
+      else if (/^Digit(\d)$/.test(code)) main = code.slice(5);
+      else if (/^Numpad(\d)$/.test(code)) main = 'num' + code.slice(6);
+      else if (/^F\d{1,2}$/.test(code)) main = code;
+      else if (code === 'Space') main = 'Space';
+      else if (code === 'Enter') main = 'Return';
+      else if (code === 'Tab') main = 'Tab';
+      else if (code === 'Backspace') main = 'Backspace';
+      else if (code === 'Escape') main = 'Esc';
+      else if (code === 'ArrowUp') main = 'Up';
+      else if (code === 'ArrowDown') main = 'Down';
+      else if (code === 'ArrowLeft') main = 'Left';
+      else if (code === 'ArrowRight') main = 'Right';
+      else if (code === 'Home') main = 'Home';
+      else if (code === 'End') main = 'End';
+      else if (code === 'PageUp') main = 'PageUp';
+      else if (code === 'PageDown') main = 'PageDown';
+      else if (code === 'Minus') main = '-';
+      else if (code === 'Equal') main = '=';
+      else if (code === 'Comma') main = ',';
+      else if (code === 'Period') main = '.';
+      else if (code === 'Slash') main = '/';
+      else if (code === 'Backslash') main = '\\';
+      else if (code === 'BracketLeft') main = '[';
+      else if (code === 'BracketRight') main = ']';
+      else if (code === 'Semicolon') main = ';';
+      else if (code === 'Quote') main = '\'';
+      else if (code === 'Backquote') main = '`';
+
+      if (!main) return null;
+      parts.push(main);
+      if (parts.length < 2) return null; // требуем хотя бы один модификатор
+      return parts.join('+');
+    }
+
+    window.addEventListener('keydown', async (e) => {
+      if (!editingKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === 'Escape') { editingKey = null; render(); return; }
+      const accel = buildAccelerator(e);
+      if (!accel) return;
+      try {
+        const updated = await window.electronAPI.setHotkey(editingKey, accel);
+        currentHotkeys = updated;
+        editingKey = null;
+        render();
+      } catch (err) {
+        showToast('Не удалось назначить: ' + (err.message || err));
+        editingKey = null;
+        render();
+      }
+    }, true);
+
+    (async () => {
+      currentHotkeys = await window.electronAPI.getHotkeys();
+      render();
+    })();
   </script>
 </body>
 </html>

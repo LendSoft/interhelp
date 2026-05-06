@@ -64,6 +64,28 @@ export default function Settings({ settings, onSave, onClose }) {
           <option value="ru-RU en-US">Авто (RU + EN)</option>
         </select>
 
+        <label className="field-label">Прозрачность окна — {form.opacity ?? 55}%</label>
+        <input
+          className="field-range"
+          type="range"
+          min="15"
+          max="95"
+          step="5"
+          value={form.opacity ?? 55}
+          onChange={e => set('opacity', Number(e.target.value))}
+        />
+
+        <label className="field-label">Размер шрифта ответа — {form.fontSize ?? 13}px</label>
+        <input
+          className="field-range"
+          type="range"
+          min="11"
+          max="22"
+          step="1"
+          value={form.fontSize ?? 13}
+          onChange={e => set('fontSize', Number(e.target.value))}
+        />
+
         <label className="field-label">Системный промпт (необязательно)</label>
         <textarea
           className="field-textarea"
