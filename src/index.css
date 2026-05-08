@@ -241,7 +241,9 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  scroll-behavior: smooth;
+  /* scroll-behavior: smooth НАМЕРЕННО НЕ ставим — иначе анимация плавного
+     скролла дерётся со стримом чанков и onScroll репортит false. Ручные
+     хоткеи скролла указывают behavior: 'smooth' прямо в JS. */
 }
 
 .chat-area::-webkit-scrollbar { width: 3px; }

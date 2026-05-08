@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 
 function formatAccel(a) {
   if (!a) return '';
@@ -15,7 +15,8 @@ export default function AnswerPanel({ phase, messages, errorMsg, onRetry, hotkey
 
   // Авто-скролл вниз только если пользователь УЖЕ был внизу.
   // Если он прокрутил вверх — оставляем его на месте.
-  useEffect(() => {
+  // useLayoutEffect: запускается синхронно после DOM-коммита, до paint.
+  useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     if (wasAtBottomRef.current) {
@@ -23,6 +24,9 @@ export default function AnswerPanel({ phase, messages, errorMsg, onRetry, hotkey
     }
   }, [messages, phase]);
 
+  // Игнорируем onScroll-события, которые пришли сразу после нашего
+  // программного скролла — иначе они меняют wasAtBottomRef из-за
+  // моментальных промежуточных значений scrollTop.
   const onScroll = (e) => {
     const el = e.target;
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
